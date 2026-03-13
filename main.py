@@ -24,6 +24,18 @@ def get_all_tasks():
     conn.close()
     return tasks
 
+def search_tasks(keyword):
+    """Recherche des tâches par titre."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, titre, categorie, statut, date_creation FROM taches WHERE titre LIKE %s ORDER BY date_creation DESC",
+        (f"%{keyword}%",)
+    )
+    tasks = cursor.fetchall()
+    conn.close()
+    return tasks
+
 def add_task(titre, description, categorie):
     """Ajoute une nouvelle tâche dans la base."""
     conn = get_connection()
@@ -63,7 +75,7 @@ class TodoApp:
     def __init__(self, root):
         self.root = root
         self.root.title("📝 Todo List")
-        self.root.geometry("750x700")
+        self.root.geometry("750x750")
         self.root.configure(bg="#07070f")
         self.root.resizable(True, True)
 
@@ -94,7 +106,6 @@ class TodoApp:
         form_frame = tk.Frame(self.root, bg="#0f0f1a", padx=15, pady=15)
         form_frame.pack(fill="x", padx=20, pady=(0, 10))
 
-        # Titre
         tk.Label(form_frame, text="Titre :", font=("Arial", 10, "bold"),
                  bg="#0f0f1a", fg="#e2e8f0").grid(row=0, column=0, sticky="w", pady=3)
 
@@ -106,7 +117,6 @@ class TodoApp:
         )
         self.entry_titre.grid(row=0, column=1, padx=10, pady=3, sticky="ew")
 
-        # Description
         tk.Label(form_frame, text="Description :", font=("Arial", 10, "bold"),
                  bg="#0f0f1a", fg="#e2e8f0").grid(row=1, column=0, sticky="nw", pady=3)
 
@@ -114,11 +124,10 @@ class TodoApp:
             form_frame, font=("Arial", 10),
             bg="#1a1a2e", fg="#e2e8f0",
             insertbackground="white", relief="flat",
-            height=3, width=40
+            height=1, width=40
         )
         self.entry_desc.grid(row=1, column=1, padx=10, pady=3, sticky="ew")
 
-        # Catégorie ← NOUVEAU
         tk.Label(form_frame, text="Catégorie :", font=("Arial", 10, "bold"),
                  bg="#0f0f1a", fg="#e2e8f0").grid(row=2, column=0, sticky="w", pady=3)
 
@@ -133,7 +142,6 @@ class TodoApp:
         )
         self.combo_categorie.grid(row=2, column=1, padx=10, pady=3, sticky="w")
 
-        # Bouton Ajouter
         btn_add = tk.Button(
             form_frame, text="➕ Ajouter la tâche",
             font=("Arial", 10, "bold"),
@@ -146,9 +154,34 @@ class TodoApp:
 
         form_frame.columnconfigure(1, weight=1)
 
+        # ── BARRE DE RECHERCHE ── (NOUVEAU)
+        search_frame = tk.Frame(self.root, bg="#07070f")
+        search_frame.pack(fill="x", padx=20, pady=(0, 8))
+
+        tk.Label(search_frame, text="🔍", font=("Arial", 12),
+                 bg="#07070f", fg="#06b6d4").pack(side="left", padx=(0, 5))
+
+        self.entry_search = tk.Entry(
+            search_frame, font=("Arial", 11),
+            bg="#1a1a2e", fg="#e2e8f0",
+            insertbackground="white", relief="flat",
+            width=30
+        )
+        self.entry_search.pack(side="left", padx=5)
+        self.entry_search.bind("<KeyRelease>", self.on_search)
+
+        tk.Button(
+            search_frame, text="✖ Effacer",
+            font=("Arial", 9),
+            bg="#475569", fg="white",
+            relief="flat", cursor="hand2",
+            padx=8, pady=3,
+            command=self.clear_search
+        ).pack(side="left", padx=5)
+
         # ── LISTE DES TÂCHES ──
         list_frame = tk.Frame(self.root, bg="#07070f")
-        list_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        list_frame.pack(fill="both", expand=False, padx=20, pady=(0, 10))
 
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side="right", fill="y")
@@ -173,22 +206,32 @@ class TodoApp:
             list_frame,
             columns=("id", "titre", "categorie", "statut", "date"),
             show="headings",
+            height=8,
             yscrollcommand=scrollbar.set
         )
 
-        self.tree.heading("id",        text="ID")
+        self.tree.heading("id",        text="")
         self.tree.heading("titre",     text="Titre")
         self.tree.heading("categorie", text="Catégorie")
         self.tree.heading("statut",    text="Statut")
         self.tree.heading("date",      text="Date")
 
-        self.tree.column("id",        width=40,  anchor="center")
-        self.tree.column("titre",     width=220, anchor="w")
+        self.tree.column("id",        width=0,  stretch=False)
+        self.tree.column("titre",     width=150, anchor="center")
         self.tree.column("categorie", width=100, anchor="center")
         self.tree.column("statut",    width=100, anchor="center")
         self.tree.column("date",      width=140, anchor="center")
 
         self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<<TreeviewSelect>>", self.show_description)
+        # ── DESCRIPTION DE LA TÂCHE SÉLECTIONNÉE ──
+        self.label_desc = tk.Label(
+            self.root, text="📌 Clique sur une tâche pour voir sa description",
+            font=("Arial", 9), bg="#0f0f1a",
+            fg="#475569", anchor="w", padx=10,
+            wraplength=700
+        )
+        self.label_desc.pack(fill="x", padx=20, pady=(0, 5))
         scrollbar.config(command=self.tree.yview)
 
         # ── BOUTONS D'ACTION ──
@@ -233,6 +276,26 @@ class TodoApp:
     # ─────────────────────────────────────────
     # ACTIONS
     # ─────────────────────────────────────────
+    def on_search(self, event=None):
+        """Filtre les tâches en temps réel selon le titre."""
+        keyword = self.entry_search.get().strip()
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        tasks = search_tasks(keyword) if keyword else get_all_tasks()
+        for task in tasks:
+            task_id, titre, categorie, statut, date = task
+            date_str = date.strftime("%d/%m/%Y %H:%M") if date else ""
+            statut_str = "✅ Terminé" if statut == "termine" else "🔄 En cours"
+            self.tree.insert("", "end", values=(task_id, titre, categorie or "—", statut_str, date_str))
+
+        self.status_bar.config(text=f"  {len(tasks)} tâche(s) trouvée(s)")
+
+    def clear_search(self):
+        """Efface la recherche et recharge toutes les tâches."""
+        self.entry_search.delete(0, "end")
+        self.refresh_list()
+
     def refresh_list(self):
         """Recharge toutes les tâches depuis MySQL et les affiche."""
         for item in self.tree.get_children():
@@ -245,8 +308,7 @@ class TodoApp:
             statut_str = "✅ Terminé" if statut == "termine" else "🔄 En cours"
             self.tree.insert("", "end", values=(task_id, titre, categorie or "—", statut_str, date_str))
 
-        count = len(tasks)
-        self.status_bar.config(text=f"  {count} tâche(s) au total")
+        self.status_bar.config(text=f"  {len(tasks)} tâche(s) au total")
 
     def add_task(self):
         """Récupère les valeurs du formulaire et ajoute la tâche."""
@@ -301,6 +363,22 @@ class TodoApp:
             delete_task(task_id)
             self.refresh_list()
             self.status_bar.config(text="  🗑 Tâche supprimée.")
+    def show_description(self, event=None):
+        selected = self.tree.selection()
+        if not selected:
+            return
+
+        item = self.tree.item(selected[0])
+        task_id = item["values"][0]
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT description FROM taches WHERE id = %s", (task_id,))
+        result = cursor.fetchone()
+        conn.close()
+
+        desc = result[0] if result and result[0] else "Aucune description."
+        self.label_desc.config(text=f"📌 {desc}", fg="#06b6d4")
 
 
 # ─────────────────────────────────────────────
