@@ -19,20 +19,18 @@ def get_all_tasks():
     """Récupère toutes les tâches depuis MySQL."""
     conn = get_connection()
     cursor = conn.cursor()
-    # On trie par date pour voir les plus récentes en premier
-    cursor.execute("SELECT id, titre, statut, date_creation FROM taches ORDER BY date_creation DESC")
+    cursor.execute("SELECT id, titre, categorie, statut, date_creation FROM taches ORDER BY date_creation DESC")
     tasks = cursor.fetchall()
     conn.close()
     return tasks
 
-def add_task(titre, description):
+def add_task(titre, description, categorie):
     """Ajoute une nouvelle tâche dans la base."""
     conn = get_connection()
     cursor = conn.cursor()
-    # On utilise %s pour éviter les injections SQL — bonne pratique !
     cursor.execute(
-        "INSERT INTO taches (titre, description) VALUES (%s, %s)",
-        (titre, description)
+        "INSERT INTO taches (titre, description, categorie) VALUES (%s, %s, %s)",
+        (titre, description, categorie)
     )
     conn.commit()
     conn.close()
@@ -65,12 +63,12 @@ class TodoApp:
     def __init__(self, root):
         self.root = root
         self.root.title("📝 Todo List")
-        self.root.geometry("700x700")
+        self.root.geometry("750x700")
         self.root.configure(bg="#07070f")
         self.root.resizable(True, True)
 
         self.build_ui()
-        self.refresh_list()  # Charge les tâches au démarrage
+        self.refresh_list()
 
     def build_ui(self):
         """Construit toute l'interface graphique."""
@@ -96,6 +94,7 @@ class TodoApp:
         form_frame = tk.Frame(self.root, bg="#0f0f1a", padx=15, pady=15)
         form_frame.pack(fill="x", padx=20, pady=(0, 10))
 
+        # Titre
         tk.Label(form_frame, text="Titre :", font=("Arial", 10, "bold"),
                  bg="#0f0f1a", fg="#e2e8f0").grid(row=0, column=0, sticky="w", pady=3)
 
@@ -107,6 +106,7 @@ class TodoApp:
         )
         self.entry_titre.grid(row=0, column=1, padx=10, pady=3, sticky="ew")
 
+        # Description
         tk.Label(form_frame, text="Description :", font=("Arial", 10, "bold"),
                  bg="#0f0f1a", fg="#e2e8f0").grid(row=1, column=0, sticky="nw", pady=3)
 
@@ -118,6 +118,21 @@ class TodoApp:
         )
         self.entry_desc.grid(row=1, column=1, padx=10, pady=3, sticky="ew")
 
+        # Catégorie ← NOUVEAU
+        tk.Label(form_frame, text="Catégorie :", font=("Arial", 10, "bold"),
+                 bg="#0f0f1a", fg="#e2e8f0").grid(row=2, column=0, sticky="w", pady=3)
+
+        self.categorie_var = tk.StringVar(value="Personnel")
+        self.combo_categorie = ttk.Combobox(
+            form_frame,
+            textvariable=self.categorie_var,
+            values=["Cours", "INSI", "Personnel", "Projet", "Révision", "Autre"],
+            state="readonly",
+            font=("Arial", 10),
+            width=20
+        )
+        self.combo_categorie.grid(row=2, column=1, padx=10, pady=3, sticky="w")
+
         # Bouton Ajouter
         btn_add = tk.Button(
             form_frame, text="➕ Ajouter la tâche",
@@ -127,7 +142,7 @@ class TodoApp:
             padx=10, pady=5,
             command=self.add_task
         )
-        btn_add.grid(row=2, column=1, padx=10, pady=8, sticky="e")
+        btn_add.grid(row=3, column=1, padx=10, pady=8, sticky="e")
 
         form_frame.columnconfigure(1, weight=1)
 
@@ -135,11 +150,9 @@ class TodoApp:
         list_frame = tk.Frame(self.root, bg="#07070f")
         list_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
-        # Scrollbar
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side="right", fill="y")
 
-        # Tableau des tâches
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Treeview",
@@ -158,21 +171,22 @@ class TodoApp:
 
         self.tree = ttk.Treeview(
             list_frame,
-            columns=("id", "titre", "statut", "date"),
+            columns=("id", "titre", "categorie", "statut", "date"),
             show="headings",
             yscrollcommand=scrollbar.set
         )
 
-        # Colonnes
-        self.tree.heading("id",     text="ID")
-        self.tree.heading("titre",  text="Titre")
-        self.tree.heading("statut", text="Statut")
-        self.tree.heading("date",   text="Date")
+        self.tree.heading("id",        text="ID")
+        self.tree.heading("titre",     text="Titre")
+        self.tree.heading("categorie", text="Catégorie")
+        self.tree.heading("statut",    text="Statut")
+        self.tree.heading("date",      text="Date")
 
-        self.tree.column("id",     width=40,  anchor="center")
-        self.tree.column("titre",  width=280, anchor="w")
-        self.tree.column("statut", width=100, anchor="center")
-        self.tree.column("date",   width=150, anchor="center")
+        self.tree.column("id",        width=40,  anchor="center")
+        self.tree.column("titre",     width=220, anchor="w")
+        self.tree.column("categorie", width=100, anchor="center")
+        self.tree.column("statut",    width=100, anchor="center")
+        self.tree.column("date",      width=140, anchor="center")
 
         self.tree.pack(fill="both", expand=True)
         scrollbar.config(command=self.tree.yview)
@@ -221,18 +235,15 @@ class TodoApp:
     # ─────────────────────────────────────────
     def refresh_list(self):
         """Recharge toutes les tâches depuis MySQL et les affiche."""
-        # On vide d'abord la liste
         for item in self.tree.get_children():
             self.tree.delete(item)
 
         tasks = get_all_tasks()
         for task in tasks:
-            task_id, titre, statut, date = task
-            # Formatage de la date
+            task_id, titre, categorie, statut, date = task
             date_str = date.strftime("%d/%m/%Y %H:%M") if date else ""
-            # Icône selon le statut
             statut_str = "✅ Terminé" if statut == "termine" else "🔄 En cours"
-            self.tree.insert("", "end", values=(task_id, titre, statut_str, date_str))
+            self.tree.insert("", "end", values=(task_id, titre, categorie or "—", statut_str, date_str))
 
         count = len(tasks)
         self.status_bar.config(text=f"  {count} tâche(s) au total")
@@ -241,16 +252,17 @@ class TodoApp:
         """Récupère les valeurs du formulaire et ajoute la tâche."""
         titre = self.entry_titre.get().strip()
         description = self.entry_desc.get("1.0", "end").strip()
+        categorie = self.categorie_var.get()
 
         if not titre:
             messagebox.showwarning("Attention", "Le titre est obligatoire !")
             return
 
-        add_task(titre, description)
+        add_task(titre, description, categorie)
 
-        # On vide le formulaire après l'ajout
         self.entry_titre.delete(0, "end")
         self.entry_desc.delete("1.0", "end")
+        self.categorie_var.set("Personnel")
 
         self.refresh_list()
         self.status_bar.config(text="  ✅ Tâche ajoutée avec succès !")
@@ -264,9 +276,8 @@ class TodoApp:
 
         item = self.tree.item(selected[0])
         task_id = item["values"][0]
-        statut_str = item["values"][2]
+        statut_str = item["values"][3]
 
-        # On détermine le statut actuel depuis l'icône affichée
         current = "termine" if "Terminé" in statut_str else "en_cours"
         toggle_task(task_id, current)
         self.refresh_list()
@@ -282,7 +293,6 @@ class TodoApp:
         task_id = item["values"][0]
         titre = item["values"][1]
 
-        # Demande confirmation avant de supprimer
         confirm = messagebox.askyesno(
             "Confirmer",
             f"Supprimer la tâche :\n\"{titre}\" ?"
