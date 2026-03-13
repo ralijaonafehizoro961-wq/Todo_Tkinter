@@ -2,6 +2,9 @@
 
 Application de gestion de tâches en Python avec interface graphique.
 
+## 📸 Aperçu
+![Todo List](screenshots/todo_app.jpg)
+
 ## Technologies
 - Python 3 + Tkinter (GUI)
 - MySQL (base de données)
